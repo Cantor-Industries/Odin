@@ -1,0 +1,42 @@
+# go2rtc configuration for the drone vision link.
+#
+# Camera: Raspberry Pi Camera Module v2 (imx219) on CSI.
+#
+# The Pi 5 has NO hardware H.264 encoder and this rpicam-vid build has no
+# libav muxer, so video is encoded in software:
+#   rpicam-vid (MJPEG) -> ffmpeg (libx264 ultrafast/zerolatency) -> go2rtc
+#
+# The two processes are supervised by telemetry/camera_pipe.py instead of a
+# `sh -c` pipeline. Reason: go2rtc only kills the process it spawned, so a
+# shell pipeline leaves rpicam-vid and ffmpeg orphaned, holding the CSI
+# camera. That made the second viewer get a black stream until reboot.
+# The helper holds a camera lock and exits cleanly when its stdout closes.
+#
+# Measured on this Pi 5 at 1280x720@30: ~19% of 4 cores, ~2.5 Mbit/s out.
+
+api:
+  listen: ":1984"
+  # The HUD page is served by the telemetry service on :8080, but the WebRTC
+  # signalling WebSocket lives on go2rtc's :1984. That makes the browser's
+  # Origin (http://<pi>:8080) differ from go2rtc's Host (:1984), and go2rtc
+  # rejects the upgrade with "request origin not allowed by
+  # Upgrader.CheckOrigin". Allowing any origin here is what lets the HUD page
+  # embed the player directly instead of hiding it in an iframe.
+  #
+  # Safe on this closed LAN (no authentication is exposed either way), but do
+  # not carry this setting onto an internet-facing deployment.
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+
+log:
+  level: info
+
+streams:
+  drone:
+    # exec: reads the raw H.264 bitstream from the helper's stdout (pipe).
+    - exec:/home/cosmos/Odin/odin/.venv/bin/python /home/cosmos/Odin/odin/telemetry/camera_pipe.py

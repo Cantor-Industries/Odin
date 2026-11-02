@@ -1,0 +1,51 @@
+[Unit]
+Description=go2rtc video server (drone camera, WebRTC)
+Documentation=https://github.com/AlexxIT/go2rtc
+After=network-online.target
+Wants=network-online.target
+# Never give up restarting: a camera fault must not leave the unit dead.
+# This key belongs in [Unit]; in [Service] systemd silently ignores it.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=cosmos
+# video group can open /dev/video*, /dev/media*, /dev/v4l-subdev* and the
+# dma-heap allocations libcamera needs on Pi 5.
+Group=video
+SupplementaryGroups=video
+WorkingDirectory=/home/cosmos/Odin/odin
+ExecStart=/home/cosmos/Odin/odin/bin/go2rtc -config /home/cosmos/Odin/odin/go2rtc.yaml
+Restart=always
+RestartSec=3
+
+# The camera ISP driver (rp1_cfe) can wedge if a process is killed while the
+# camera is streaming. A wedged ISP needs a full reboot to clear, so:
+#   * KillMode=control-group stops rpicam-vid/ffmpeg together with go2rtc
+#     (camera_pipe.py already tears its children down on SIGTERM).
+#   * TimeoutStopSec is generous enough for that clean shutdown.
+KillMode=control-group
+TimeoutStopSec=15
+
+StandardOutput=journal
+StandardError=journal
+
+# --- hardening -------------------------------------------------------------
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/tmp
+
+# PrivateTmp=NO on purpose. camera_pipe.py publishes its live video stats to
+# /tmp/odin-video.json, and drone-telemetry.service reads that same
+# file to drive the HUD's fps/latency panel. A private /tmp per service would
+# give each unit its own tmpfs, so the two would never meet and the stats
+# panel would silently stay blank forever.
+PrivateTmp=false
+
+# Do not set DeviceAllow here. Setting it switches DevicePolicy to "closed",
+# and the camera stack opens far more nodes than just /dev/video0: measured on
+# this Pi 5, rpicam-vid opens /dev/video4,6,7,20..27, /dev/v4l-subdev0..2,
+# /dev/media0,1 and /dev/dma_heap/system. An incomplete allow-list makes the
+# camera fail with an unrelated-looking "failed to acquire camera" error.
+# This service runs as an unprivileged user on a closed LAN, so the default
+# device policy is the safer trade.

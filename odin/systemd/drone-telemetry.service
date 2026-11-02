@@ -1,0 +1,52 @@
+[Unit]
+Description=Drone vision telemetry + HUD service
+Documentation=file:/home/cosmos/Odin/odin/README.md
+# order only, never a hard dependency
+After=network-online.target go2rtc.service
+Wants=network-online.target
+# Deliberately NOT Requires=go2rtc: telemetry must keep serving the HUD even
+# when video is down, and must never restart in a loop because of the camera.
+
+[Service]
+Type=simple
+User=cosmos
+# dialout: USB-serial flight controller
+# video:   reads the camera stats file, and future camera access
+Group=dialout
+SupplementaryGroups=dialout video
+WorkingDirectory=/home/cosmos/Odin/odin
+
+# TELEM_SOURCE / TELEM_DEVICE / TELEM_BAUD / TELEM_HOST / TELEM_PORT.
+# systemd EnvironmentFile stores these as literal strings, so the file must
+# contain only KEY=VALUE lines. (An older version of this file had a TELEM_SOURCE
+# line with a trailing comment; that silently became part of the value and
+# broke startup. Keep that file comment-free on value lines.)
+EnvironmentFile=/home/cosmos/Odin/odin/telemetry/config.env
+
+# Camera settings are NOT set here. camera_pipe.py is spawned by go2rtc, so
+# its environment comes from go2rtc.service, and it reads telemetry/camera.env
+# itself. Putting CAM_* here would have no effect whatsoever.
+
+ExecStart=/home/cosmos/Odin/odin/.venv/bin/python /home/cosmos/Odin/odin/telemetry/server.py
+Restart=always
+RestartSec=2
+
+# A missing flight controller is a NORMAL state: the process stays up and keeps
+# retrying, so no start-limit tuning is needed.
+TimeoutStopSec=5
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+
+# --- hardening -------------------------------------------------------------
+NoNewPrivileges=true
+# Needs to write telemetry/camera.env only, which is inside WorkingDirectory.
+ReadWritePaths=/home/cosmos/Odin/odin/telemetry /tmp
+
+# PrivateTmp=NO on purpose: the video stats file in /tmp is the hand-off from
+# go2rtc's camera pipeline to this service. A private /tmp would hide it.
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

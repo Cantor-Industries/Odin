@@ -1,0 +1,9 @@
+# Drone vision telemetry service.
+# Install into the venv:  .venv/bin/pip install -r telemetry/requirements.txt
+#
+# pymavlink  - MAVLink parsing (MAVLink 1 is what the APM 2.8 speaks)
+# pyserial   - serial transport used by pymavlink for /dev/ttyUSB0
+# aiohttp    - web page, WebSocket, and the camera-control API
+pymavlink==2.4.50
+pyserial==3.5
+aiohttp==3.14.5

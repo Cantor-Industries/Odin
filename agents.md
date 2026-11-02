@@ -63,9 +63,9 @@ Tradeoff: the OSD is not in recordings or in other players (e.g. VLC). If the us
 
 ## 5. Video pipeline (go2rtc)
 
-1. Install go2rtc to `~/drone-vision/bin/go2rtc`, `chmod +x`.
+1. Install go2rtc to `~/Odin/odin/bin/go2rtc`, `chmod +x`.
 2. Verify the camera works first: `rpicam-hello --list-cameras`, then `rpicam-hello -t 5000`.
-3. Create `~/drone-vision/go2rtc.yaml`. Starting sketch (**verify and adjust, the exec line is the least certain part**):
+3. Create `~/Odin/odin/go2rtc.yaml`. Starting sketch (**verify and adjust, the exec line is the least certain part**):
 
 ```yaml
 api:
@@ -88,7 +88,7 @@ Targets: glass-to-glass latency under about 300 ms, Pi CPU under about 50% while
 
 ## 6. Telemetry service (Python)
 
-File: `~/drone-vision/telemetry/server.py`
+File: `~/Odin/odin/telemetry/server.py`
 
 Responsibilities:
 
@@ -103,7 +103,7 @@ Responsibilities:
    - `HEARTBEAT`: armed flag (`base_mode & MAV_MODE_FLAG_SAFETY_ARMED`) and flight mode (decode `custom_mode` using the ArduCopter mode table; pymavlink's `mavutil.mode_mapping()` can help)
    - `STATUSTEXT`: last message, shown briefly
 4. Run an asyncio loop that broadcasts the state as JSON over a WebSocket (`/ws`) at about 20 Hz to all clients. Include a `link_ok` flag, false if no heartbeat for more than 3 s.
-5. Serve the static page in `~/drone-vision/web/` at `/` on port 8080.
+5. Serve the static page in `~/Odin/odin/web/` at `/` on port 8080.
 6. Handle serial disconnects and reconnect automatically. Never crash the process on parse errors.
 7. Log to stdout (journald).
 
@@ -145,13 +145,13 @@ Requirements:
 3. **Visible state in the HUD.** Add a `source` field to the JSON (`"serial"`, `"udp"`, `"sim"`, `"none"`). The HUD shows a small badge: `LIVE`, `SIM` or `NO FC`. A simulated feed must never be mistaken for live data. When `source` is `sim`, show an obvious "SIMULATED" label.
 4. **MAVLink simulator (`telemetry/sim_mavlink.py`).** A small script using pymavlink that acts as a fake APM: sends MAVLink 1 `HEARTBEAT`, `ATTITUDE`, `VFR_HUD`, `GLOBAL_POSITION_INT`, `GPS_RAW_INT`, `SYS_STATUS` and an occasional `STATUSTEXT` to a UDP port, with smoothly varying roll/pitch/yaw, a slowly draining battery, a mode change and an arm/disarm toggle. Run with `python sim_mavlink.py --out udpout:127.0.0.1:14550` and the service with `--source udp:127.0.0.1:14550`. This tests the full path: parse, state, WebSocket, HUD.
 5. **Optional, better fidelity:** ArduPilot SITL (`sim_vehicle.py -v ArduCopter --out=udp:127.0.0.1:14550`) if installing it is reasonable on the Pi. Treat as optional. The small simulator above is enough.
-6. **Keep serial config in one place.** `~/drone-vision/telemetry/config.env` holds `TELEM_SOURCE`, device and baud. Plugging in the FC later should mean editing that file (and, if needed, the stream-rate params on the FC), then `systemctl restart drone-telemetry`.
+6. **Keep serial config in one place.** `~/Odin/odin/telemetry/config.env` holds `TELEM_SOURCE`, device and baud. Plugging in the FC later should mean editing that file (and, if needed, the stream-rate params on the FC), then `systemctl restart drone-telemetry`.
 7. **Don't assume the serial device name.** When no FC is attached, `/dev/ttyUSB0` will not exist, and `/dev/ttyAMA0` may exist without anything on it. In `auto` mode, list candidates (`/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/ttyAMA0`) and only count one as the FC if a MAVLink HEARTBEAT is received on it.
 8. **Raw logging hook (nice to have):** an option `--log-raw file.tlog` that writes the incoming MAVLink stream (pymavlink supports `.tlog`). Later, real flight data can be replayed through the HUD without the drone (`--source` pointing at a replay of the tlog). This is optional, build it only after the basics work.
 
 ## 7. Web page (HUD)
 
-File: `~/drone-vision/web/index.html` (single file, vanilla JS, no build step).
+File: `~/Odin/odin/web/index.html` (single file, vanilla JS, no build step).
 
 - Full-window layout. The video is the go2rtc player embedded in an `<iframe>` pointing at `http://<pi-ip>:1984/stream.html?src=drone&mode=webrtc` (verify the URL against the go2rtc UI; alternatively use go2rtc's `video-rtc.js` element). Use `location.hostname` so it works for any Pi IP.
 - A transparent `<canvas>` absolutely positioned over the video, `pointer-events: none`.
@@ -163,7 +163,7 @@ File: `~/drone-vision/web/index.html` (single file, vanilla JS, no build step).
 ## 8. Deployment layout
 
 ```
-~/drone-vision/
+~/Odin/odin/
   DRONE_VISION_DESIGN.md
   bin/go2rtc
   go2rtc.yaml
@@ -177,7 +177,7 @@ File: `~/drone-vision/web/index.html` (single file, vanilla JS, no build step).
   README.md
 ```
 
-- Use a Python venv in `~/drone-vision/.venv`.
+- Use a Python venv in `~/Odin/odin/.venv`.
 - systemd units: `Restart=always`, `After=network-online.target`. The telemetry unit should run as a user in the `dialout` group (serial access). Enable both with `systemctl enable --now`.
 - Add a short `README.md` with: how to start/stop, the URLs, how to change serial device and baud.
 

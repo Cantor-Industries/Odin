@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Static binaries are downloaded, not source. Fetch them again with the
+# commands in odin/README.md rather than committing ~100 MB.
+odin/bin/
+
+# Runtime state. camera.env IS tracked: it holds the colour settings that were
+# tuned on this camera and are part of the working configuration.
+odin/telemetry/*.log
+odin/telemetry/source.env
+odin/logs/
+
+# Editor / OS noise
+.DS_Store
+*.swp

@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Drone Vision</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230b1116'/><path d='M6 16h7l3-6 3 12 3-6h4' stroke='%2343e08a' stroke-width='2.5' fill='none'/></svg>">
+<style>
+  :root {
+    --fh: #e8f4ff;
+    --dim: #9fb6c9;
+    --accent: #43e08a;
+    --warn: #ffb020;
+    --danger: #ff3b30;
+    --panel: rgba(6, 12, 18, 0.62);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background: #000; overflow: hidden;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--fh);
+  }
+  #video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    background: #000; z-index: 1;
+    object-fit: contain;
+  }
+  #videofallback {
+    position: absolute; inset: 0; z-index: 1;
+    display: none; align-items: center; justify-content: center;
+    color: var(--dim); font-size: 13px; letter-spacing: .1em;
+    text-align: center; line-height: 1.7;
+  }
+  #videofallback.show { display: flex; }
+
+  /* The HUD owns the whole frame and must never eat clicks. */
+  #hud {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    z-index: 2; pointer-events: none;
+  }
+
+  /* ---- camera colour controls ---- */
+  #gearbtn {
+    position: absolute; z-index: 6; right: 12px; bottom: 12px;
+    width: 32px; height: 32px; border-radius: 6px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(6,12,18,.35); border: 1px solid rgba(255,255,255,.18);
+    color: var(--fh); font-size: 16px; line-height: 1;
+    backdrop-filter: blur(3px);
+    opacity: .45;
+    transition: opacity .15s, background .15s, border-color .15s;
+  }
+  #gearbtn:hover { opacity: 1; background: rgba(30,44,58,.85); border-color: rgba(255,255,255,.3); }
+  #gearbtn.on { opacity: 1; border-color: rgba(67,224,138,.7); color: var(--accent); }
+
+  #panel {
+    position: absolute; z-index: 5; right: 12px; bottom: 52px;
+    width: 268px; max-height: calc(100vh - 100px); overflow-y: auto;
+    display: none; flex-direction: column; gap: 10px;
+    padding: 14px;
+    background: rgba(6,12,18,.92);
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 8px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 12px 40px rgba(0,0,0,.55);
+    font-size: 11px;
+  }
+  #panel.show { display: flex; }
+  #panel h3 {
+    margin: 0; font-size: 10px; letter-spacing: .16em; color: var(--dim);
+    text-transform: uppercase; font-weight: 600;
+  }
+  #panel .row { display: flex; flex-direction: column; gap: 4px; }
+  #panel .row .lbl {
+    display: flex; justify-content: space-between; align-items: baseline;
+    color: rgba(200,225,245,.9);
+  }
+  #panel .row .val { color: var(--accent); font-variant-numeric: tabular-nums; }
+  #panel input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px; border-radius: 2px;
+    background: rgba(255,255,255,.18); outline: none;
+  }
+  #panel input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid #0b1116;
+  }
+  #panel input[type=range]::-moz-range-thumb {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid #0b1116;
+  }
+  #panel select {
+    width: 100%; padding: 5px 6px;
+    background: rgba(255,255,255,.07); color: var(--fh);
+    border: 1px solid rgba(255,255,255,.18); border-radius: 4px;
+    font-family: inherit; font-size: 11px;
+  }
+  #panel .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  #panel button {
+    flex: 1 1 auto; padding: 6px 8px; cursor: pointer;
+    background: rgba(255,255,255,.08); color: var(--fh);
+    border: 1px solid rgba(255,255,255,.2); border-radius: 4px;
+    font-family: inherit; font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  #panel button:hover { background: rgba(67,224,138,.18); border-color: rgba(67,224,138,.5); }
+  #panel button.danger:hover { background: rgba(255,59,48,.2); border-color: rgba(255,59,48,.6); }
+  #panel .note { color: var(--dim); font-size: 9.5px; line-height: 1.45; }
+  #panel .status { min-height: 12px; font-size: 9.5px; color: var(--warn); }
+  #panel code { color: rgba(200,225,245,.85); }
+</style>
+</head>
+<body>
+  <video id="video" autoplay muted playsinline></video>
+
+  <div id="videofallback">
+    <div>
+      <div style="font-size:15px;color:#e8f4ff;margin-bottom:6px">NO VIDEO</div>
+      <div id="videomsg">connecting to camera&hellip;</div>
+    </div>
+  </div>
+
+  <canvas id="hud"></canvas>
+
+  <button id="gearbtn" type="button" title="Camera colour controls"
+          aria-label="Camera colour controls">&#9881;</button>
+
+  <div id="panel">
+    <h3>Camera image</h3>
+
+    <div class="row">
+      <div class="lbl"><span>Saturation</span><span class="val" id="v-saturation">1.0</span></div>
+      <input type="range" id="c-saturation" min="0" max="300" step="5" value="100">
+    </div>
+    <div class="row">
+      <div class="lbl"><span>Contrast</span><span class="val" id="v-contrast">1.0</span></div>
+      <input type="range" id="c-contrast" min="50" max="200" step="5" value="100">
+    </div>
+    <div class="row">
+      <div class="lbl"><span>Brightness</span><span class="val" id="v-brightness">0.0</span></div>
+      <input type="range" id="c-brightness" min="-50" max="50" step="2" value="0">
+    </div>
+    <div class="row">
+      <div class="lbl"><span>Sharpness</span><span class="val" id="v-sharpness">1.0</span></div>
+      <input type="range" id="c-sharpness" min="0" max="250" step="5" value="100">
+    </div>
+    <div class="row">
+      <div class="lbl"><span>Exposure comp.</span><span class="val" id="v-ev">0.0</span></div>
+      <input type="range" id="c-ev" min="-20" max="20" step="1" value="0">
+    </div>
+    <div class="row">
+      <div class="lbl"><span>White balance</span></div>
+      <select id="c-awb">
+        <option value="">auto (default)</option>
+        <option value="daylight">daylight</option>
+        <option value="cloudy">cloudy</option>
+        <option value="indoor">indoor</option>
+        <option value="tungsten">tungsten</option>
+        <option value="fluorescent">fluorescent</option>
+        <option value="incandescent">incandescent</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="lbl"><span>Camera type</span></div>
+      <select id="c-tuning">
+        <option value="auto">NoIR (no IR-cut filter)</option>
+        <option value="default">Standard (IR-cut filter)</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="lbl"><span>Metering</span></div>
+      <select id="c-metering">
+        <option value="">centre (default)</option>
+        <option value="average">average</option>
+        <option value="spot">spot</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="btns" style="margin-top:2px">
+        <label style="display:flex;align-items:center;gap:5px;flex:1 1 45%">
+          <input type="checkbox" id="c-hflip"> H-flip
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;flex:1 1 45%">
+          <input type="checkbox" id="c-vflip"> V-flip
+        </label>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button type="button" id="p-reset" class="danger">Reset</button>
+      <button type="button" id="p-default">Defaults</button>
+    </div>
+    <div class="btns">
+      <button type="button" data-preset="punchy">Punchy</button>
+      <button type="button" data-preset="flat">Flat</button>
+      <button type="button" data-preset="overcast">Overcast</button>
+      <button type="button" data-preset="sunny">Sunny</button>
+    </div>
+
+    <div class="note">
+      Applies by briefly restarting the camera (video returns in ~1&nbsp;s).
+      Saved to <code>telemetry/camera.env</code>.
+    </div>
+    <div class="status" id="p-status"></div>
+  </div>
+
+<script type="module">
+"use strict";
+
+/* ==================================================================== *
+ * Page wiring.
+ *
+ * The HUD itself lives in /static/hud.js - this file only owns the things
+ * the drawing code must not do: the WebRTC connection, the telemetry
+ * WebSocket, link latency measurement, and the camera colour panel.
+ * ==================================================================== */
+
+import { DronePlayer } from "/static/player.js";
+import { HUD } from "/static/hud.js";
+
+const HOST = location.hostname;
+const WS_URL = `ws://${HOST}:8080/ws`;
+
+/* ------------------------------------------------------------------ *
+ * Video
+ * ------------------------------------------------------------------ */
+const videoEl = document.getElementById("video");
+const videoFallback = document.getElementById("videofallback");
+const videoMsg = document.getElementById("videomsg");
+
+const player = new DronePlayer(videoEl, {
+  host: HOST,
+  src: "drone",
+  // 30 ms of jitter buffer instead of the browser's 300-500 ms default.
+  // Safe on a LAN; this is the single biggest latency win on the client side.
+  jitterBufferTarget: 0.03,
+  onstate: (s) => {
+    if (s === "playing") {
+      videoFallback.classList.remove("show");
+    } else {
+      videoFallback.classList.add("show");
+      videoMsg.textContent =
+        s === "error" ? (player.lastError || "stream error")
+        : s === "connecting" || s === "signalling" ? "connecting to camera…"
+        : "video disconnected - reconnecting";
+    }
+  },
+});
+player.connect();
+
+/* ------------------------------------------------------------------ *
+ * Telemetry WebSocket
+ * ------------------------------------------------------------------ */
+// Extra fields are all null until the backend knows them; the HUD draws null
+// as "---". Keeping them here documents the contract the HUD relies on.
+let data = {
+  link_ok: false, source: "none", sim: false,
+  armed: false, mode: "", mode_code: null,
+  roll: 0, pitch: 0, yaw: 0, heading: 0,
+  alt: null, alt_rel: null, alt_msl: null,
+  groundspeed: 0, airspeed: 0, climb: 0, throttle: 0,
+  batt_v: null, batt_a: null, batt_pct: null, batt_cells: null, batt_cell_v: null,
+  mah_used: null, mah_per_km: null, mah_per_hour: null,
+  gps_fix: 0, sats: 0, hdop: null, lat: 0, lon: 0,
+  home_dist: null, home_bearing: null, home_set: false,
+  flight_time_s: null, total_dist_m: null,
+  data_kbps: null, sys: null, wifi: null, msg: "",
+};
+
+let wsOpen = false;
+let lastMsgAt = performance.now();
+
+// Rolling end-to-end latency estimate, driven from the HUD-side breakdown.
+let latAvg = 0;
+
+function connect() {
+  let sock;
+  try { sock = new WebSocket(WS_URL); } catch (e) { scheduleReconnect(); return; }
+
+  sock.onopen = () => {
+    wsOpen = true;
+    retry = 0;
+    startPing();
+  };
+  sock.onmessage = (ev) => {
+    try {
+      const d = JSON.parse(ev.data);
+      if (d && typeof d.pong === "number") {
+        // Echoed by the server: true round-trip time on the browser's own
+        // clock, so it stays right even if the two clocks disagree.
+        const rtt = performance.now() - d.pong;
+        if (rtt >= 0 && rtt < 5000) {
+          linkRttSamples.push(rtt);
+          if (linkRttSamples.length > 20) linkRttSamples.shift();
+          linkRttMs = linkRttSamples.reduce((a, b) => a + b, 0) / linkRttSamples.length;
+        }
+        return;
+      }
+      data = d;
+      lastMsgAt = performance.now();
+    } catch (e) { /* ignore malformed frame */ }
+  };
+  sock.onclose = () => { wsOpen = false; stopPing(); scheduleReconnect(); };
+  sock.onerror = () => { try { sock.close(); } catch (e) {} };
+  return sock;
+}
+
+/* Link latency: an application-level ping over the WebSocket we already
+ * have, so it measures the same path the telemetry takes. */
+const linkRttSamples = [];
+let linkRttMs = null;
+let pingTimer = null;
+
+function startPing() {
+  stopPing();
+  const ping = () => {
+    const sock = wsRef;
+    if (sock && sock.readyState === WebSocket.OPEN) {
+      try { sock.send(JSON.stringify({ ping: performance.now() })); } catch (e) {}
+    }
+  };
+  ping();
+  pingTimer = setInterval(ping, 2000);
+}
+
+function stopPing() {
+  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+}
+
+let retry = 0;
+function scheduleReconnect() {
+  retry = Math.min(retry + 1, 6);
+  const delay = Math.min(500 * Math.pow(1.7, retry), 8000);
+  setTimeout(() => { wsRef = connect(); }, delay);
+}
+
+let wsRef = connect();
+
+/* ------------------------------------------------------------------ *
+ * HUD
+ * ------------------------------------------------------------------ */
+const canvas = document.getElementById("hud");
+const hud = new HUD(canvas);
+
+window.addEventListener("resize", () => hud.resize());
+
+/* ------------------------------------------------------------------ *
+ * Telemetry source: the SIM toggle
+ *
+ * The HUD draws the chip and the key binding; this block owns the request.
+ * Nothing here runs at boot, so the service starts on its real source and the
+ * simulator only ever runs because someone asked for it.
+ * ------------------------------------------------------------------ */
+async function fetchSource() {
+  try {
+    const r = await fetch("/api/source", { cache: "no-store" });
+    if (r.ok) hud.setSourceMode(await r.json());
+  } catch (e) { /* the chip stays as it was */ }
+}
+
+async function setSource(mode) {
+  hud.setSourcePending(true);
+  try {
+    const r = await fetch("/api/source", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      hud.setSourceMode({ error: body.error || `HTTP ${r.status}` });
+    } else {
+      hud.setSourceMode(body);
+    }
+  } catch (e) {
+    hud.setSourceMode({ error: String(e.message || e) });
+  } finally {
+    hud.setSourcePending(false);
+  }
+}
+
+hud.onToggleSim = () => {
+  // Toggle based on what the service last reported, not on what we hope.
+  const inSim = hud.sourceMode === "sim";
+  return setSource(inSim ? "live" : "sim");
+};
+
+fetchSource();
+
+let lastFrameAt = performance.now();
+let lastWifiAt = 0;
+
+function frame() {
+  requestAnimationFrame(frame);
+
+  const now = performance.now();
+  const dtMs = Math.min(250, now - lastFrameAt);
+  lastFrameAt = now;
+
+  // "Live" means: the socket is open, a message arrived recently, and the
+  // backend still has a heartbeat. All three must hold, so a dead Pi cannot
+  // be mistaken for a live drone.
+  const fresh = wsOpen && (now - lastMsgAt) < 2000;
+  const live = fresh && !!data.link_ok;
+
+  hud.update(data, player.stats, linkRttMs, latAvg, live);
+
+  // End-to-end estimate: browser jitter buffer + decode + the Pi's encoder
+  // queue + half the round trip (one-way network). Smoothed, because a raw
+  // per-frame number is too jumpy to read.
+  const st = player.stats;
+  if (st && st.clientMs) {
+    const piMs = data.video && data.video.ok ? (data.video.backlog_ms || 0) : 0;
+    const netMs = linkRttMs !== null ? linkRttMs / 2 : 0;
+    const total = st.clientMs + piMs + netMs;
+    latAvg += (total - latAvg) * (dtMs / 2000);       // ~2 s time constant
+  }
+
+  // 30 ms histogram buckets for the decoder panel.
+  hud.tickStats(dtMs);
+
+  // One WiFi sample a second keeps the sparkline at 30 samples = 30 s.
+  if (now - lastWifiAt > 1000) {
+    lastWifiAt = now;
+    hud.pushWifiSample(data.wifi ? data.wifi.signal_dbm : null);
+  }
+
+  hud.draw();
+}
+
+requestAnimationFrame(frame);
+
+/* ------------------------------------------------------------------ *
+ * Camera colour panel
+ * ------------------------------------------------------------------ */
+const PANEL_CONTROLS = {
+  saturation: { el: "c-saturation", out: "v-saturation", scale: 0.01, dec: 1 },
+  contrast:   { el: "c-contrast",   out: "v-contrast",   scale: 0.01, dec: 2 },
+  brightness: { el: "c-brightness", out: "v-brightness", scale: 0.02, dec: 2 },
+  sharpness:  { el: "c-sharpness",  out: "v-sharpness",  scale: 0.01, dec: 1 },
+  ev:         { el: "c-ev",         out: "v-ev",         scale: 0.1,  dec: 1 },
+};
+
+const panelEl = document.getElementById("panel");
+const gearBtn = document.getElementById("gearbtn");
+const statusEl = document.getElementById("p-status");
+let cameraSettings = {};     // env var -> value, as stored on the Pi
+let saveTimer = null;
+
+function setStatus(text, isError) {
+  statusEl.textContent = text || "";
+  statusEl.style.color = isError ? "var(--danger)" : "var(--warn)";
+}
+
+/** Reflect the stored settings into the widgets. */
+function syncPanelFromSettings() {
+  for (const [key, cfg] of Object.entries(PANEL_CONTROLS)) {
+    const envName = "CAM_" + key.toUpperCase();
+    const raw = cameraSettings[envName];
+    const val = raw === undefined ? (key === "brightness" || key === "ev" ? 0 : 1) : parseFloat(raw);
+    const input = document.getElementById(cfg.el);
+    input.value = Math.round(val / cfg.scale);
+    document.getElementById(cfg.out).textContent = val.toFixed(cfg.dec);
+  }
+  document.getElementById("c-awb").value = cameraSettings.CAM_AWB || "";
+  document.getElementById("c-metering").value = cameraSettings.CAM_METERING || "";
+
+  // CAM_TUNING: "auto" (the default for this sensor) resolves to the NoIR
+  // tuning file, which is what this NoIR module needs. An unset value means
+  // the same thing, and only an explicit "default" picks the stock file.
+  // Showing "default" for an unset value once wrote CAM_TUNING=default and
+  // silently brought back the magenta cast.
+  const tun = cameraSettings.CAM_TUNING || "";
+  document.getElementById("c-tuning").value =
+    (tun === "default" || tun === "none") ? "default" : "auto";
+
+  document.getElementById("c-hflip").checked = truthy(cameraSettings.CAM_HFLIP);
+  document.getElementById("c-vflip").checked = truthy(cameraSettings.CAM_VFLIP);
+}
+
+function truthy(v) {
+  return v !== undefined &&
+         !["0", "false", "no", "off", ""].includes(String(v).toLowerCase());
+}
+
+/** Collect the current widget state as an API payload. */
+function collectPanel() {
+  const out = {};
+  for (const [key, cfg] of Object.entries(PANEL_CONTROLS)) {
+    const input = document.getElementById(cfg.el);
+    const val = parseFloat(input.value) * cfg.scale;
+    const def = (key === "brightness" || key === "ev") ? 0 : 1;
+    out[key] = Math.abs(val - def) < 1e-9 ? "" : val.toFixed(3);
+  }
+  out.awb = document.getElementById("c-awb").value;
+  out.metering = document.getElementById("c-metering").value;
+  // "auto" is the sensor default (NoIR file for this module), so send it as
+  // empty: no env line, and camera_pipe.py falls back to its default tuning.
+  out.tuning = document.getElementById("c-tuning").value === "default" ? "default" : "";
+  out.hflip = document.getElementById("c-hflip").checked ? "1" : "";
+  out.vflip = document.getElementById("c-vflip").checked ? "1" : "";
+  return out;
+}
+
+async function loadCameraSettings() {
+  try {
+    const r = await fetch("/api/camera", { cache: "no-store" });
+    const d = await r.json();
+    cameraSettings = d.settings || {};
+    syncPanelFromSettings();
+  } catch (e) {
+    setStatus("cannot read camera settings", true);
+  }
+}
+
+/**
+ * Send only the controls the user actually moved.
+ *
+ * Posting every widget on every save meant a tab left open across a page
+ * change re-sent stale values for controls nobody touched - which is how
+ * CAM_TUNING=default kept reappearing and killing the NoIR correction. Diffs
+ * are also less disruptive: one camera restart, not six.
+ */
+function changedControls() {
+  const all = collectPanel();
+  const numeric = new Set(["brightness", "contrast", "saturation", "sharpness",
+                           "ev", "fps", "quality"]);
+  const out = {};
+  for (const [k, v] of Object.entries(all)) {
+    const envName = "CAM_" + k.toUpperCase();
+    const was = cameraSettings[envName] ?? "";
+    const now = String(v ?? "");
+    let same;
+    if (numeric.has(k)) {
+      // Compare numbers, not strings: the panel formats "1.600" while the file
+      // holds "1.6". A string compare would flag them as different on every
+      // save, so every slider nudge would re-post all controls.
+      const a = parseFloat(now), b = parseFloat(String(was));
+      same = Number.isNaN(a) && Number.isNaN(b) ? true
+           : Number.isNaN(a) || Number.isNaN(b) ? (now === String(was))
+           : Math.abs(a - b) < 1e-6;
+    } else {
+      same = now === String(was);
+    }
+    if (!same) out[k] = v;
+  }
+  return out;
+}
+
+async function saveCamera(payload) {
+  if (payload && !payload.reset && Object.keys(payload).length === 0) {
+    return;                      // nothing actually changed
+  }
+  setStatus("applying…");
+  try {
+    const r = await fetch("/api/camera", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      setStatus("failed: " + (d.error || "unknown"), true);
+      return;
+    }
+    cameraSettings = d.settings || {};
+    if (d.restarted) {
+      setStatus("applied");
+    } else {
+      setStatus("saved - takes effect when video restarts", true);
+    }
+    setTimeout(() => { if (statusEl.textContent === "applied") setStatus(""); }, 2500);
+  } catch (e) {
+    setStatus("failed: " + e.message, true);
+  }
+}
+
+function queueSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => saveCamera(changedControls()), 550);
+}
+
+for (const [key, cfg] of Object.entries(PANEL_CONTROLS)) {
+  const input = document.getElementById(cfg.el);
+  input.addEventListener("input", () => {
+    const val = parseFloat(input.value) * cfg.scale;
+    document.getElementById(cfg.out).textContent = val.toFixed(cfg.dec);
+    queueSave();
+  });
+}
+for (const id of ["c-awb", "c-metering", "c-tuning", "c-hflip", "c-vflip"]) {
+  document.getElementById(id).addEventListener("change", () => saveCamera(changedControls()));
+}
+
+document.getElementById("p-default").addEventListener("click", () => {
+  saveCamera({ reset: true }).then(() => { loadCameraSettings(); });
+});
+
+for (const btn of document.querySelectorAll("[data-preset]")) {
+  btn.addEventListener("click", async () => {
+    const r = await fetch("/api/camera");
+    const d = await r.json();
+    const preset = (d.presets || {})[btn.dataset.preset] || {};
+    await saveCamera({ reset: true, ...preset });
+    await loadCameraSettings();
+  });
+}
+
+gearBtn.addEventListener("click", () => {
+  const open = panelEl.classList.toggle("show");
+  gearBtn.classList.toggle("on", open);
+  if (open) loadCameraSettings();
+});
+
+loadCameraSettings();
+
+/* ------------------------------------------------------------------ *
+ * Debug hook
+ * ------------------------------------------------------------------ */
+window.droneHud = {
+  get stats() { return player ? player.stats : null; },
+  get linkRttMs() { return linkRttMs; },
+  get latAvg() { return latAvg; },
+  get videoStats() { return data.video || null; },
+  get playerState() { return player ? player.state : null; },
+  get jitterTarget() { return player ? player.jitterBufferTarget : null; },
+  get pc() { return player ? player.pc : null; },
+  get hud() { return hud; },
+  get live() { return hud.isLive(); },
+  // Force a resolution change for layout tests without resizing the window.
+  setViewport(w, h) {
+    hud.W = w; hud.H = h;
+    hud.canvas.width = w; hud.canvas.height = h;
+    hud.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    hud._cacheMetrics();
+  },
+};
+
+// If the tab was hidden the clock may have jumped; resync rather than
+// declaring the link dead on the first frame back.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) lastMsgAt = performance.now() - 100;
+});
+</script>
+</body>
+</html>
