@@ -4,6 +4,22 @@ Companion computer for a Raspberry Pi 5 drone: low-latency WebRTC video from a
 CSI camera, plus a Python MAVLink telemetry service and a fighter-jet style HUD,
 all viewable in a laptop browser at a single URL.
 
+## Install
+
+On a Raspberry Pi 5 with 64-bit Raspberry Pi OS and a CSI camera:
+
+```bash
+git clone <this-repo> ~/Odin
+cd ~/Odin/odin
+./scripts/install.sh
+```
+
+One script handles apt packages, the pinned/checksummed go2rtc + ffmpeg
+binaries, the Python environment, camera-sensor detection, and enabling both
+services at boot. Re-running it is the supported update path. See
+`odin/README.md` for options, offline installs, and what it adapts
+automatically.
+
 ## Layout
 
 ```
@@ -12,11 +28,12 @@ Odin/                       repo root
 ├── agents.md               the original build spec / handoff document
 ├── .gitignore
 └── odin/                   the application
-    ├── README.md           the real documentation: URLs, HUD keys, troubleshooting
-    ├── bin/                static ffmpeg + go2rtc binaries (git-ignored)
+    ├── README.md           the real documentation: install, URLs, HUD, troubleshooting
+    ├── pyproject.toml      Python deps (uv project) + uv.lock
+    ├── bin/                static ffmpeg + go2rtc (fetched, checksum-verified, git-ignored)
     ├── go2rtc.yaml         stream definition, ports, CORS origin
-    ├── scripts/            install-services.sh, uninstall-services.sh
-    ├── systemd/            go2rtc.service, drone-telemetry.service
+    ├── scripts/            install.sh, fetch-binaries.sh, uninstall.sh
+    ├── systemd/            unit templates (@ODIN_USER@, @ODIN_ROOT@)
     ├── telemetry/          Python services
     │   ├── server.py       MAVLink -> state -> WebSocket + web page + /api/*
     │   ├── camera_pipe.py  supervises rpicam-vid + ffmpeg
@@ -24,9 +41,9 @@ Odin/                       repo root
     │   ├── sysinfo.py      CPU, temperature, throttling, WiFi
     │   ├── sim_mavlink.py  standalone fake APM (the HUD has an in-process sim too)
     │   ├── camera_ctl.py   colour controls from the command line
-    │   ├── config.env      telemetry source, device, baud, HTTP port
+    │   ├── config.env      telemetry source, device, baud, cells, HTTP port
     │   ├── camera.env      camera colour settings (written at runtime)
-    │   └── requirements.txt
+    │   └── requirements.txt  legacy pip list; the installer prefers uv
     └── web/                no build step, plain ES modules
         ├── index.html      page shell: video, WebSocket, colour panel
         ├── hud.js          the HUD (HUD_CONFIG + class HUD)
@@ -34,16 +51,16 @@ Odin/                       repo root
 ```
 
 `bin/` and `.venv/` are deliberately not committed: the binaries are ~100 MB of
-downloads and the virtualenv is reproducible. See `odin/README.md` for how they
-were obtained.
+downloads and the virtualenv is reproducible. Both are created by
+`scripts/install.sh`.
 
 ## Start / stop
 
 Installed as systemd units (start automatically on every boot):
 
 ```bash
-sudo ./odin/scripts/install-services.sh     # install + enable + start
-sudo ./odin/scripts/uninstall-services.sh   # remove
+./odin/scripts/install.sh                   # install + enable + start
+./odin/scripts/uninstall.sh                # stop + disable + remove
 systemctl status go2rtc drone-telemetry
 journalctl -u drone-telemetry -f
 ```

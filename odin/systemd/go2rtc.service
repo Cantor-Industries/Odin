@@ -10,7 +10,7 @@ StartLimitIntervalSec=0
 [Service]
 Type=simple
 # --- installer substitutions -------------------------------------------------
-# @ODIN_USER@ is replaced by scripts/install-services.sh with the account that
+# @ODIN_USER@ is replaced by scripts/install.sh with the account that
 # will run the service. Everything else is derived from the unit's own path at
 # runtime (see WorkingDirectory), so the unit is valid wherever the repo sits.
 User=@ODIN_USER@

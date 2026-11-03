@@ -270,5 +270,5 @@ Odin is installed${DO_ENABLE:+ and enabled at boot}.
 
   logs:  journalctl -u go2rtc -f
          journalctl -u drone-telemetry -f
-  undo:  sudo ./scripts/uninstall-services.sh
+  undo:  ./scripts/uninstall.sh
 EOF

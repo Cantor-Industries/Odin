@@ -28,6 +28,81 @@ Replace `10.0.61.170` with the Pi's current address (`hostname -I`).
 
 ---
 
+## Install on a new Pi
+
+One script does everything, and re-running it is how you update or repair an
+install:
+
+```bash
+git clone <this-repo> ~/Odin
+cd ~/Odin/odin
+./scripts/install.sh
+```
+
+It will:
+
+1. check that this is a 64-bit Raspberry Pi OS machine;
+2. `apt-get install` the pieces that cannot come from pip — `rpicam-apps-core`
+   (`rpicam-vid`), `iw`, `raspi-utils-core` (`vcgencmd`);
+3. download **go2rtc 1.9.15** and **static ffmpeg 7.0.2** for arm64, verifying
+   each against a pinned SHA-256 (`scripts/fetch-binaries.sh`);
+4. build `.venv` from `pyproject.toml` + `uv.lock` with **uv** (or fall back to
+   `python -m venv` + pip if uv is not installed);
+5. detect the camera sensor and set the matching tuning file;
+6. render the systemd units for *your* username and path, enable both, and
+   start them.
+
+It asks for sudo only for the steps that need root (apt, unit install, group
+membership); everything inside the repo stays owned by you.
+
+Options:
+
+| Flag | Effect |
+|---|---|
+| `--no-apt` | do not run apt; just report what is missing |
+| `--no-enable` | install and start the units, but do not start them at boot |
+
+Uninstall with `./scripts/uninstall.sh` (`--purge` also deletes `.venv/` and
+`bin/`).
+
+**Requirements:** Raspberry Pi 5 (or another Pi with a `rpicam-vid`-capable
+camera stack) running 64-bit Raspberry Pi OS / Debian, plus a CSI camera.
+Network access is needed once, at install time, for apt and the binaries.
+
+### What the installer adapts automatically
+
+These used to be hardcoded assumptions; each is now detected or configured:
+
+| Assumption | Now |
+|---|---|
+| user `cosmos`, repo at `~/Odin` | units are `@ODIN_USER@`/`@ODIN_ROOT@` templates rendered at install |
+| repo path appears in `go2rtc.yaml` | `exec:` is relative, resolved against `WorkingDirectory` |
+| sensor is `imx219` | `detect_sensor()` reads `rpicam-vid --list-cameras`, then I2C |
+| camera is NoIR | `CAM_NOIR=1\|0` in `camera.env`, written by the installer |
+| WiFi is `wlan0` | `active_wifi_iface()` scans `/sys/class/net/*/wireless` |
+| battery is 3S | `TELEM_CELLS=0` (unknown) unless you set it |
+
+If you attach a different camera, re-run `./scripts/install.sh`: it detects the
+new sensor and updates the tuning file. Unknown sensors get libcamera's default
+rather than a path that does not exist (rpicam-vid only *warns* about those and
+then renders bad colour, so a wrong path fails silently).
+
+### Offline / no internet
+
+The binaries are not committed (~103 MB), so a machine with no network needs
+them carried across:
+
+```bash
+# on a machine that has them
+scp -r ~/Odin/odin/bin  user@newpi:~/Odin/odin/
+
+# on the new Pi
+./scripts/fetch-binaries.sh --check    # verifies the copied files
+./scripts/install.sh --no-apt          # needs apt packages preinstalled
+```
+
+---
+
 ## Start / stop / status
 
 ```bash
@@ -304,10 +379,12 @@ measured post-encode latency.
 
 ```
 ~/Odin/odin/
-  bin/go2rtc, bin/ffmpeg, bin/ffprobe   static binaries, no system packages needed
+  pyproject.toml, uv.lock               Python deps, pinned (uv project)
+  bin/go2rtc, bin/ffmpeg, bin/ffprobe   fetched + checksum-verified, git-ignored
   go2rtc.yaml                           stream definition + ports
-  scripts/install-services.sh           install + enable both units (needs sudo)
-  scripts/uninstall-services.sh         stop + disable + remove them
+  scripts/install.sh                    the installer: apt, binaries, venv, units
+  scripts/fetch-binaries.sh             download/verify the static binaries
+  scripts/uninstall.sh                  stop + disable + remove (--purge too)
   telemetry/server.py                   MAVLink -> state -> WebSocket + web page
   telemetry/camera_pipe.py              supervises rpicam-vid + ffmpeg
   telemetry/camera_ctl.py               colour controls (CLI)
@@ -317,30 +394,49 @@ measured post-encode latency.
   telemetry/camera.env                  colour settings (written at runtime)
   telemetry/derived.py                  home, distance, timer, mAh, efficiency
   telemetry/sysinfo.py                  CPU, temperature, throttling, WiFi
-  telemetry/requirements.txt
+  telemetry/requirements.txt            legacy pip list (the installer prefers uv)
   web/index.html                        page shell: video, WS, colour panel
   web/hud.js                            the HUD: HUD_CONFIG + class HUD
   web/player.js                         native WebRTC player with getStats()
-  systemd/*.service
-  .venv/
+  systemd/*.service                     templates: @ODIN_USER@, @ODIN_ROOT@
+  .venv/                                created by uv, git-ignored
 ```
 
 No build step: both modules are loaded directly as ES modules from `/static/`.
 
 ## Starting on boot
 
-Both units are installed, enabled and started by one script:
+`./scripts/install.sh` renders the unit templates into
+`/etc/systemd/system/`, enables both and starts them. After a reboot the page
+comes up on its own — nothing needs logging in. The camera pipeline is started
+by go2rtc on demand (first viewer), so an idle Pi is not encoding video.
 
-```bash
-sudo ./scripts/install-services.sh      # from ~/Odin/odin
-```
-
-That copies the units to `/etc/systemd/system`, enables them, and starts them
-now. After a reboot the page comes up on its own — nothing needs logging in.
-`uninstall-services.sh` reverses it. The camera pipeline is started by go2rtc
-on demand (first viewer), so an idle Pi is not encoding video.
+If a unit refuses to come back after a reboot, check
+`systemctl is-enabled <unit>`: it must say `enabled`, not `static`. A unit with
+no `[Install]` section enables "successfully" and then never starts again.
 
 ## Troubleshooting
+
+**Install failed at the apt step.** A fresh Pi image often has a stale package
+index. Run `sudo apt-get update` and retry, or use `--no-apt` and install the
+handful of packages yourself (`rpicam-apps-core iw raspi-utils-core`).
+
+**`error: bin/ is missing files or they do not match the pinned versions`.**
+The binaries were not downloaded, or a partial download left something behind.
+Run `./scripts/fetch-binaries.sh --force`. If the machine is offline, copy a
+working `bin/` directory in from another install and run
+`./scripts/fetch-binaries.sh --check`.
+
+**Video is magenta / purple.** The module is NoIR (no IR-cut filter) but is not
+being given the `*_noir` tuning file. Check `CAM_NOIR` in
+`telemetry/camera.env`; `1` selects `<sensor>_noir.json`. Re-run
+`./scripts/install.sh` to re-detect the sensor. Conversely, a normal module
+given a NoIR tuning file looks washed out — set `CAM_NOIR=0`.
+
+**"failed to acquire camera" / no camera found.** The CSI ribbon, or another
+process holds the camera. `rpicam-vid --list-cameras` must show a sensor. Only
+one process may stream at a time; `camera_pipe.py` takes a lock in
+`/tmp/odin-camera.lock`.
 
 **Page loads but video is black / "error".**
 `journalctl -u go2rtc -f` and look for `camera_pipe`. A wedged camera shows
@@ -352,6 +448,14 @@ triggered by killing a process mid-stream; a reboot clears it. The helper in
 **`NO FC` forever with an FC plugged in.** Wrong device or baud, TX/RX not
 crossed, no common ground, or the FC is not streaming (see step 3 above).
 Try `--source auto --print` to watch for heartbeats.
+
+**Per-cell voltage shows `---`.** `TELEM_CELLS` is `0` (unknown). Set it to the
+real cell count (3 for 3S) in `telemetry/config.env`, then restart
+`drone-telemetry`. The APM reports pack voltage only.
+
+**A service ran until the first reboot and then vanished.** `systemctl
+is-enabled <unit>` says `static` — the unit has no `[Install]` section, so
+`enable` silently does nothing. See "Starting on boot".
 
 **HUD values look wrong.** GPS altitude is absolute (MSL); the HUD's altitude
 is relative (from `GLOBAL_POSITION_INFO.relative_alt`). Check
