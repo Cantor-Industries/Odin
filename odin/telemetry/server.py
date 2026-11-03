@@ -37,7 +37,7 @@ import time
 import types
 from pathlib import Path
 
-from aiohttp import WSMsgType, web
+from aiohttp import WSCloseCode, WSMsgType, web
 from pymavlink import mavutil
 
 import aiohttp
@@ -649,6 +649,21 @@ class WebServer:
         self.clients: set[web.WebSocketResponse] = set()
         self.started_at = time.time()
 
+    async def close_clients(self) -> None:
+        """Close all WebSockets with a normal close frame.
+
+        Called on shutdown. aiohttp's runner cleanup waits for handlers to
+        return, so a single half-dead browser connection can hold the process
+        open past systemd's stop timeout.
+        """
+        clients = list(self.clients)
+        self.clients.clear()
+        for ws in clients:
+            try:
+                await ws.close(code=WSCloseCode.GOING_AWAY, message=b"server shutdown")
+            except Exception:  # noqa: BLE001
+                pass
+
     # -- telemetry source (sim toggle) ----------------------------------
     def _source_env_path(self):
         return BASE_DIR / "telemetry" / "source.env"
@@ -1049,13 +1064,43 @@ async def run(args) -> None:
 
     await stop.wait()
     log.info("shutting down")
+
+    async def _shutdown() -> None:
+        try:
+            src.stop_current()
+        except Exception:  # noqa: BLE001
+            pass
+        for t in tasks:
+            t.cancel()
+        # Close WebSockets first: aiohttp's runner cleanup waits for handlers
+        # to return, and a browser that vanished without a clean close leaves
+        # one hanging. `ws.close()` itself waits for the peer's close frame,
+        # so it needs its own bound as well.
+        try:
+            await asyncio.wait_for(srv.close_clients(), timeout=1.0)
+        except asyncio.TimeoutError:
+            log.warning("websocket clients did not close in time")
+        try:
+            await asyncio.wait_for(runner.cleanup(), timeout=1.0)
+        except asyncio.TimeoutError:
+            log.warning("aiohttp runner did not shut down in time")
+
+    # Hard deadline. systemd sends SIGTERM and waits TimeoutStopSec (5s) before
+    # SIGKILL; overshooting that looked like a clean stop in the journal while
+    # actually being killed. Shutdown is best-effort: the port is released by
+    # process exit either way.
     try:
-        src.stop_current()
-    except Exception:
-        pass
-    for t in tasks:
-        t.cancel()
-    await runner.cleanup()
+        await asyncio.wait_for(_shutdown(), timeout=2.5)
+    except asyncio.TimeoutError:
+        log.warning("shutdown exceeded 2.5s")
+    except Exception:  # noqa: BLE001
+        log.exception("error during shutdown")
+
+    # Source threads are daemon threads blocked in serial reads or probes, and
+    # asyncio may still hold abandoned tasks. exit() is the only reliable way
+    # to leave on time. Flush logging first; nothing else needs to reach disk.
+    logging.shutdown()
+    os._exit(0)
 
 
 def _guarded_run(src) -> None:
