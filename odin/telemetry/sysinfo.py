@@ -12,12 +12,33 @@ explicit that unknown values must render "---", never 0.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
 import time
 
 IFACE = "wlan0"
+
+
+def active_wifi_iface(preferred: str = IFACE) -> str:
+    """The interface that actually carries WiFi on this machine.
+
+    Hardcoding wlan0 is wrong often enough to matter: a Pi can name its
+    interface wlp1s0, and a USB WiFi dongle appears as wlan1. Falls back to
+    the preferred name when nothing better is found, so error messages still
+    mention something concrete.
+    """
+    if os.path.exists(f"/sys/class/net/{preferred}/wireless"):
+        return preferred
+    try:
+        for name in sorted(os.listdir("/sys/class/net")):
+            if os.path.exists(f"/sys/class/net/{name}/wireless"):
+                return name
+    except OSError:
+        pass
+    return preferred
+
 
 
 # --------------------------------------------------------------------------
@@ -230,7 +251,7 @@ class SystemSampler:
                 "cpu_mhz": cpu_mhz(),
                 "cpu_temp_c": soc_temp_c(),
                 "throttled": throttled(),
-                "wifi": wifi(),
+                "wifi": wifi(active_wifi_iface()),
             }
         payload = dict(self._slow)
         payload["cpu_pct"] = self.cpu.percent()

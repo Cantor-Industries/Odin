@@ -1,6 +1,6 @@
 [Unit]
-Description=Drone vision telemetry + HUD service
-Documentation=file:/home/cosmos/Odin/odin/README.md
+Description=Odin telemetry + HUD service
+Documentation=file:@ODIN_ROOT@/README.md
 # order only, never a hard dependency
 After=network-online.target go2rtc.service
 Wants=network-online.target
@@ -9,25 +9,28 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=cosmos
+# --- installer substitutions -------------------------------------------------
+# @ODIN_USER@ is replaced by scripts/install-services.sh with the account that
+# will run the service; @ODIN_ROOT@ with the absolute path to this repository.
+User=@ODIN_USER@
 # dialout: USB-serial flight controller
 # video:   reads the camera stats file, and future camera access
 Group=dialout
 SupplementaryGroups=dialout video
-WorkingDirectory=/home/cosmos/Odin/odin
+WorkingDirectory=@ODIN_ROOT@
 
 # TELEM_SOURCE / TELEM_DEVICE / TELEM_BAUD / TELEM_HOST / TELEM_PORT.
 # systemd EnvironmentFile stores these as literal strings, so the file must
 # contain only KEY=VALUE lines. (An older version of this file had a TELEM_SOURCE
 # line with a trailing comment; that silently became part of the value and
 # broke startup. Keep that file comment-free on value lines.)
-EnvironmentFile=/home/cosmos/Odin/odin/telemetry/config.env
+EnvironmentFile=@ODIN_ROOT@/telemetry/config.env
 
 # Camera settings are NOT set here. camera_pipe.py is spawned by go2rtc, so
 # its environment comes from go2rtc.service, and it reads telemetry/camera.env
 # itself. Putting CAM_* here would have no effect whatsoever.
 
-ExecStart=/home/cosmos/Odin/odin/.venv/bin/python /home/cosmos/Odin/odin/telemetry/server.py
+ExecStart=@ODIN_ROOT@/.venv/bin/python @ODIN_ROOT@/telemetry/server.py
 Restart=always
 RestartSec=2
 
@@ -42,7 +45,7 @@ StandardError=journal
 # --- hardening -------------------------------------------------------------
 NoNewPrivileges=true
 # Needs to write telemetry/camera.env only, which is inside WorkingDirectory.
-ReadWritePaths=/home/cosmos/Odin/odin/telemetry /tmp
+ReadWritePaths=@ODIN_ROOT@/telemetry /tmp
 
 # PrivateTmp=NO on purpose: the video stats file in /tmp is the hand-off from
 # go2rtc's camera pipeline to this service. A private /tmp would hide it.

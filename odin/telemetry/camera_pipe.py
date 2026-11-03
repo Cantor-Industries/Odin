@@ -28,8 +28,10 @@ editing code (see telemetry/config.env). Unset means "leave it to libcamera".
 from __future__ import annotations
 
 import fcntl
+import glob
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -149,15 +151,79 @@ COLOUR_OPTS = {
     "CAM_TUNING": "--tuning-file",      # sensor tuning JSON, see below
 }
 
-# The camera on this Pi is a NoIR module (no IR-cut filter): with the default
-# tuning file auto-white-balance pushes red and blue hard and the picture comes
-# out purple/magenta. Measured magenta excess dropped from +36.7 to -2.5 when
-# using the NoIR tuning file. "auto" below resolves to the NoIR file for the
-# detected sensor.
-CAM_TUNING_AUTO = {
-    "imx219": "/usr/share/libcamera/ipa/rpi/pisp/imx219_noir.json",
-}
-DEFAULT_TUNING = CAM_TUNING_AUTO["imx219"]
+# Tuning files live under libcamera's IPA directory. Which subdirectory holds
+# the RPi sensor tunings depends on the libcamera build: Pi 5 (PiSP) uses
+# rpi/pisp, older Pis use rpi/vc4. Both are checked so the same code works on
+# anything from a Pi 3 to a Pi 5.
+TUNING_DIRS = (
+    "/usr/share/libcamera/ipa/rpi/pisp",
+    "/usr/share/libcamera/ipa/rpi/vc4",
+    "/usr/share/libcamera/ipa/rpi",
+)
+
+
+def detect_sensor() -> str | None:
+    """Name of the attached camera sensor, e.g. "imx219", or None.
+
+    Tries rpicam-vid first because that is the same tool that will use the
+    tuning file, then falls back to the I2C device name. Deliberately quiet:
+    this runs while the pipeline is starting and a missing camera is normal.
+    """
+    try:
+        out = subprocess.run(["rpicam-vid", "--list-cameras"],
+                             capture_output=True, text=True, timeout=5).stdout
+        m = re.search(r"^\s*\d+\s*:\s*([a-z0-9]+)", out, re.MULTILINE)
+        if m:
+            return m.group(1)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # /sys/bus/i2c/devices/<bus>-<addr>/name holds the sensor's I2C name.
+    try:
+        for name_path in glob.glob("/sys/bus/i2c/devices/*/name"):
+            try:
+                with open(name_path) as fh:
+                    name = fh.read().strip()
+            except OSError:
+                continue
+            if re.match(r"^(imx|ov)\d", name):
+                return name
+    except OSError:
+        pass
+    return None
+
+
+def tuning_file(sensor: str | None, noir: bool = True) -> str | None:
+    """The libcamera tuning JSON for `sensor`, or None to use libcamera's own.
+
+    A NoIR module (no IR-cut filter) needs the matching *_noir.json: with the
+    stock file auto-white-balance pushes red and blue and the picture comes out
+    magenta (measured +36.7 -> -2.5 magenta excess on an imx219 NoIR). Every
+    other module should get libcamera's default, which is why this returns
+    None rather than guessing a filename that may not exist.
+
+    Returning None is important: rpicam-vid only *warns* about a missing
+    tuning file and then produces bad colour, so a wrong path fails silently.
+    """
+    if not sensor:
+        return None
+    candidate = f"{sensor}_noir.json" if noir else f"{sensor}.json"
+    for d in TUNING_DIRS:
+        path = os.path.join(d, candidate)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+# Whether this module is NoIR is a property of the hardware, not something to
+# guess. The installer writes CAM_NOIR=1|0 into camera.env after detection;
+# the default here keeps the reference Pi's behaviour (NoIR) when unset.
+def camera_is_noir() -> bool:
+    raw = os.environ.get("CAM_NOIR", "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
+
 
 # These take no value; presence of a truthy env var adds the flag.
 FLAG_OPTS = {"CAM_HFLIP", "CAM_VFLIP"}
@@ -193,11 +259,13 @@ def build_rpicam_cmd() -> list[str]:
     for env_name, flag in COLOUR_OPTS.items():
         raw = os.environ.get(env_name, "").strip()
         if not raw:
-            # The NoIR tuning file is a default, not a user setting: without it
-            # the picture has a strong magenta cast. Set CAM_TUNING=none to use
-            # the stock tuning file instead (IR-cut camera modules).
-            if env_name == "CAM_TUNING" and os.environ.get("CAM_TUNING") != "none":
-                raw = DEFAULT_TUNING
+            # Tuning is special: unset means "pick the right file for the
+            # sensor actually attached", not "leave it to libcamera". An
+            # explicit "none"/"default" opts out.
+            if env_name == "CAM_TUNING":
+                raw = tuning_file(detect_sensor(), noir=camera_is_noir()) or ""
+                if not raw:
+                    continue
             else:
                 continue
         if env_name in FLAG_OPTS:
@@ -210,13 +278,18 @@ def build_rpicam_cmd() -> list[str]:
             if raw.lower() in ("none", "default", "off"):
                 continue
             if raw.lower() in ("auto", "noir", "on"):
-                raw = DEFAULT_TUNING
+                # Resolve against the sensor that is actually attached, so the
+                # same install works on an imx219, imx477, imx708 or ov5647.
+                raw = tuning_file(detect_sensor(), noir=camera_is_noir()) or ""
+                if not raw:
+                    continue        # libcamera's default is the safe answer
             if not os.path.exists(raw):
-                # An unrecognised value must not silently disable the NoIR
-                # correction and bring back the magenta cast, so fall back to
-                # the sensor default and say so.
-                log(f"CAM_TUNING={raw!r} is not a file; using {DEFAULT_TUNING}")
-                raw = DEFAULT_TUNING
+                # rpicam-vid only warns about a missing tuning file and then
+                # carries on with bad colour, so never pass a path that is not
+                # there. Falling back to libcamera's choice is visible and
+                # recoverable; a wrong sensor's tuning file is neither.
+                log(f"CAM_TUNING={raw!r} is not a file; using libcamera's default")
+                continue
         cmd += [flag, raw]
 
     cmd += ["-o", "-"]

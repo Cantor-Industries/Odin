@@ -1,5 +1,5 @@
 [Unit]
-Description=go2rtc video server (drone camera, WebRTC)
+Description=Odin go2rtc video server (drone camera, WebRTC)
 Documentation=https://github.com/AlexxIT/go2rtc
 After=network-online.target
 Wants=network-online.target
@@ -9,13 +9,18 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-User=cosmos
+# --- installer substitutions -------------------------------------------------
+# @ODIN_USER@ is replaced by scripts/install-services.sh with the account that
+# will run the service. Everything else is derived from the unit's own path at
+# runtime (see WorkingDirectory), so the unit is valid wherever the repo sits.
+User=@ODIN_USER@
 # video group can open /dev/video*, /dev/media*, /dev/v4l-subdev* and the
 # dma-heap allocations libcamera needs on Pi 5.
 Group=video
 SupplementaryGroups=video
-WorkingDirectory=/home/cosmos/Odin/odin
-ExecStart=/home/cosmos/Odin/odin/bin/go2rtc -config /home/cosmos/Odin/odin/go2rtc.yaml
+# @ODIN_ROOT@ is the absolute path to this repository, substituted at install.
+WorkingDirectory=@ODIN_ROOT@
+ExecStart=@ODIN_ROOT@/bin/go2rtc -config @ODIN_ROOT@/go2rtc.yaml
 Restart=always
 RestartSec=3
 
@@ -44,7 +49,7 @@ PrivateTmp=false
 
 # Do not set DeviceAllow here. Setting it switches DevicePolicy to "closed",
 # and the camera stack opens far more nodes than just /dev/video0: measured on
-# this Pi 5, rpicam-vid opens /dev/video4,6,7,20..27, /dev/v4l-subdev0..2,
+# a Pi 5, rpicam-vid opens /dev/video4,6,7,20..27, /dev/v4l-subdev0..2,
 # /dev/media0,1 and /dev/dma_heap/system. An incomplete allow-list makes the
 # camera fail with an unrelated-looking "failed to acquire camera" error.
 # This service runs as an unprivileged user on a closed LAN, so the default

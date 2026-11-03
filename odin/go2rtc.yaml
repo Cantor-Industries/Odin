@@ -12,7 +12,7 @@
 # camera. That made the second viewer get a black stream until reboot.
 # The helper holds a camera lock and exits cleanly when its stdout closes.
 #
-# Measured on this Pi 5 at 1280x720@30: ~19% of 4 cores, ~2.5 Mbit/s out.
+# Measured on a Pi 5 at 1280x720@30: ~19% of 4 cores, ~2.5 Mbit/s out.
 
 api:
   listen: ":1984"
@@ -39,4 +39,9 @@ log:
 streams:
   drone:
     # exec: reads the raw H.264 bitstream from the helper's stdout (pipe).
-    - exec:/home/cosmos/Odin/odin/.venv/bin/python /home/cosmos/Odin/odin/telemetry/camera_pipe.py
+    #
+    # The path is RELATIVE and resolves against go2rtc.service's
+    # WorkingDirectory (the repo root), so this file needs no editing when the
+    # repo lives somewhere else. go2rtc does not expand $VARS in exec:, so an
+    # absolute path here would have to be rewritten at install time.
+    - exec:./.venv/bin/python telemetry/camera_pipe.py

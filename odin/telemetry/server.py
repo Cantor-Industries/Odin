@@ -1026,8 +1026,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--request-streams", action="store_true",
                    help="send REQUEST_DATA_STREAM (only with explicit approval)")
     p.add_argument("-v", "--verbose", action="store_true")
-    p.add_argument("--cells", type=int, default=int(env("TELEM_CELLS", "3")),
-                   help="battery cell count for per-cell voltage (APM does not report it)")
+    p.add_argument("--cells", type=int, default=int(env("TELEM_CELLS", "0")),
+                   help="battery cell count for per-cell voltage (APM does not "
+                        "report it); 0 = unknown, HUD shows per-cell as ---")
     args = p.parse_args(argv)
     # Boot default: CLI flag, then the HUD's persisted override, then config.env.
     override = load_source_env()

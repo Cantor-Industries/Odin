@@ -1,0 +1,17 @@
+[project]
+name = "odin"
+version = "0.1.0"
+description = "Raspberry Pi 5 drone companion: WebRTC video + MAVLink telemetry HUD"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pymavlink==2.4.50",
+    "pyserial==3.5",
+    "aiohttp==3.14.5",
+]
+
+[tool.uv]
+# This is an application, not a library. Nothing imports it as a package, so
+# there is no src layout to build and no need to install the project itself
+# into the venv. `uv sync` then just creates .venv and installs the deps.
+package = false
