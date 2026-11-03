@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Test tooling output. Hypothesis caches failing examples here; those are
+# machine-local and should never be committed.
+.pytest_cache/
+.hypothesis/
+
 # Static binaries are downloaded, not source. Fetch them again with the
 # commands in odin/README.md rather than committing ~100 MB.
 odin/bin/

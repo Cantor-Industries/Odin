@@ -40,8 +40,6 @@ from pathlib import Path
 from aiohttp import WSCloseCode, WSMsgType, web
 from pymavlink import mavutil
 
-import aiohttp
-
 # Local modules. sys.path already contains this directory when run as a script,
 # but an explicit insert keeps `python -c` and unit tests working too.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -116,6 +114,45 @@ CAMERA_PRESETS = {
 # --------------------------------------------------------------------------
 # Flight state
 # --------------------------------------------------------------------------
+
+async def require_json(request: "web.Request") -> dict | None:
+    """The request body as a dict, or None if it must be rejected.
+
+    Both POST endpoints change machine state (camera settings, telemetry
+    source). They must only accept a JSON content type.
+
+    Why this matters: `text/plain` is a CORS-"simple" content type, so a
+    browser will send a cross-origin POST with that type without asking
+    permission first (no preflight). Any web page the operator happens to
+    visit could therefore fire a state-changing request at this service. It
+    could not read the reply, but the side effect would already have happened.
+    Requiring application/json forces a preflight for cross-origin callers,
+    which this service never grants.
+
+    Returning None means "a response was already prepared"; callers just
+    return it. The error is deliberately the same shape as the existing
+    validation errors so the HUD's error display keeps working.
+    """
+    ctype = (request.content_type or "").split(";")[0].strip().lower()
+    if ctype != "application/json":
+        return None  # caller must build the 415 response
+
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    if not isinstance(body, dict):
+        return None
+    return body
+
+
+def json_required_response() -> "web.Response":
+    return web.json_response(
+        {"ok": False,
+         "error": "expected a JSON object body with "
+                  "Content-Type: application/json"},
+        status=415)
+
 
 def _round(value, places: int):
     """round() that preserves None. Unknown must stay unknown, not become 0."""
@@ -691,15 +728,13 @@ class WebServer:
         pretending to be live is exactly what the HUD rules forbid, and mixing
         simulated values into a real flight would be worse.
         """
+        body = await require_json(request)
+        if body is None:
+            return json_required_response()
+
         if self.sources is None:
             return web.json_response(
                 {"ok": False, "error": "source switching unavailable"}, status=503)
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
-        if not isinstance(body, dict):
-            return web.json_response({"ok": False, "error": "expected an object"}, status=400)
 
         mode = str(body.get("mode", "")).strip().lower()
         if mode not in ("sim", "live"):
@@ -772,12 +807,9 @@ class WebServer:
         Requires a JSON body like {"saturation": "1.2", "awb": "cloudy"}.
         Send "reset": true to clear everything back to defaults.
         """
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
-        if not isinstance(body, dict):
-            return web.json_response({"ok": False, "error": "expected an object"}, status=400)
+        body = await require_json(request)
+        if body is None:
+            return json_required_response()
 
         env_path = BASE_DIR / "telemetry" / "camera.env"
         if body.get("reset"):

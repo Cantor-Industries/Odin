@@ -415,6 +415,39 @@ If a unit refuses to come back after a reboot, check
 `systemctl is-enabled <unit>`: it must say `enabled`, not `static`. A unit with
 no `[Install]` section enables "successfully" and then never starts again.
 
+## Tests
+
+```bash
+uv run pytest -q          # 68 tests, a few seconds
+uv run ruff check telemetry tests
+```
+
+CI runs both on every push (`.github/workflows/tests.yml`), on Python 3.11 and
+3.13. Nothing in the suite needs a camera, go2rtc, a flight controller or arm64:
+`tests/test_derived.py` is arithmetic and `tests/test_http.py` drives aiohttp
+in-process.
+
+What is worth testing here, and why:
+
+* **`derived.py`** — the only module doing real arithmetic, and the only place
+  where a wrong answer appears to the pilot as a plausible number. Covered by
+  concrete cases with hand-computed values (one degree of latitude, 1 A for an
+  hour, antipodal points) plus hypothesis properties (haversine is symmetric,
+  bearing stays in `[0, 360)`, consumed mAh never decreases). Every one of
+  these invariants fails if a sign or argument order is flipped.
+* **The JSON content-type guard** — `tests/test_http.py` asserts that
+  `text/plain`, form-encoded and multipart POSTs get `415` and cause no side
+  effect. `text/plain` is a CORS-simple type, so without this a page the
+  operator visits could fire a state-changing request cross-origin.
+* **The absence of a command path** — `test_no_control_endpoint_exists` fails
+  if anyone adds `/api/goto`, `/api/arm`, `/api/mode`, `/api/command` or
+  `/api/param`. That is deliberate friction: adding a control endpoint should
+  start a conversation about a safety gate, not pass CI silently.
+
+Not covered, deliberately: the camera pipeline, go2rtc and the HUD. They need
+real hardware or a browser, and their failure modes are visible immediately
+rather than silently wrong.
+
 ## Troubleshooting
 
 **Install failed at the apt step.** A fresh Pi image often has a stale package

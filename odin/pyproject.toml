@@ -10,6 +10,42 @@ dependencies = [
     "aiohttp==3.14.5",
 ]
 
+# Test-only. Kept out of the runtime install so the Pi service does not carry
+# pytest into production.
+[dependency-groups]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.2.0",
+    "hypothesis==6.140.3",
+    "ruff==0.14.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning:odin.*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# E/F are pycodestyle+pyflakes; I is import order; B is bugbear (mutable
+# defaults, shadowed loop vars, etc). Deliberately NOT `SIM`: this codebase
+# uses explicit try/except/pass in the hardware paths because a suppressed
+# exception there is a documented decision, not a simplification.
+select = ["E", "F", "I", "B"]
+ignore = [
+    # Long comment lines are common here (the code documents measured
+    # behaviour); the formatter handles code, this only governs comments.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on exact shapes and build long parametrize lists.
+"tests/*" = ["E402"]
+
 [tool.uv]
 # This is an application, not a library. Nothing imports it as a package, so
 # there is no src layout to build and no need to install the project itself

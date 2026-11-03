@@ -170,7 +170,7 @@ def validate(name: str, value: str) -> str:
         try:
             f = float(value)
         except ValueError:
-            raise SystemExit(f"{name} must be a number")
+            raise SystemExit(f"{name} must be a number") from None
         if not (lo_hi[0] <= f <= lo_hi[1]):
             raise SystemExit(f"{name} must be between {lo_hi[0]} and {lo_hi[1]}")
     return value
@@ -234,7 +234,7 @@ def restart_stream() -> None:
     """Apply pending camera.env changes live and wait until they take effect."""
     prev = current_frames()
     if wait_for_restart(prev):
-        print(f"camera restarted - changes are live")
+        print("camera restarted - changes are live")
     else:
         print("warning: camera did not report a restart; "
               "is the video pipeline running?")
@@ -339,7 +339,7 @@ def main(argv=None) -> int:
     elif args.cmd == "apply":
         restart_stream()
     elif args.cmd == "controls":
-        for k, (flag, rng, help_) in sorted(CONTROLS.items()):
+        for k, (_flag, rng, help_) in sorted(CONTROLS.items()):
             r = f"  [{rng[0]}..{rng[1]}]" if rng else ""
             print(f"  {k:11s} {help_}{r}")
     return 0

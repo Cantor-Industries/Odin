@@ -1,0 +1,58 @@
+name: tests
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # ubuntu-latest is x86_64, but everything tested here is pure Python:
+    # derived.py is arithmetic and test_http.py drives aiohttp in-process.
+    # Neither needs a camera, go2rtc, or arm64, so the suite stays fast and CI
+    # never flirts with the Pi-specific bits.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python }}
+        run: uv python install ${{ matrix.python }}
+
+      # --frozen: fail if uv.lock is out of date with pyproject.toml, so a
+      # dependency change cannot slip in unresolvable.
+      - name: Install dependencies
+        run: uv sync --frozen --python ${{ matrix.python }}
+
+      - name: Run tests
+        run: uv run --frozen pytest -q
+
+  # Static checks are a separate job so a formatting nit does not hide a test
+  # failure, and vice versa.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv sync --frozen
+
+      - name: ruff
+        run: uv run --frozen ruff check telemetry tests
+
+      - name: Compile check (catches syntax errors in files no test imports)
+        run: uv run --frozen python -m compileall -q telemetry tests

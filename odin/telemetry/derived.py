@@ -16,7 +16,6 @@ Read-only by design: nothing in this file talks to the flight controller.
 from __future__ import annotations
 
 import math
-import time
 
 # --------------------------------------------------------------------------
 # Tunables
