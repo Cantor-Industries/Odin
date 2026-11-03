@@ -66,6 +66,21 @@ echo "==> enabling (start at boot) and starting now"
 systemctl enable --now go2rtc.service
 systemctl enable --now drone-telemetry.service
 
+# `systemctl enable` returns 0 even when it does nothing at all, which is what
+# happens for a unit with no [Install] section (systemd calls those "static").
+# That exact bug meant go2rtc ran until the first reboot and never came back.
+# Assert the outcome instead of trusting the exit code.
+echo "==> verifying both units are enabled for boot"
+for u in go2rtc.service drone-telemetry.service; do
+  state="$(systemctl is-enabled "$u" 2>&1 || true)"
+  if [[ "$state" != "enabled" ]]; then
+    echo "error: $u is not enabled (systemctl reports '$state')." >&2
+    echo "       A unit with no [Install] section cannot be enabled." >&2
+    exit 1
+  fi
+  printf "    %-24s %s\n" "$u" "$state"
+done
+
 sleep 3
 echo
 echo "==> status"

@@ -49,3 +49,9 @@ PrivateTmp=false
 # camera fail with an unrelated-looking "failed to acquire camera" error.
 # This service runs as an unprivileged user on a closed LAN, so the default
 # device policy is the safer trade.
+
+[Install]
+# Required. Without this section systemd treats the unit as "static":
+# `systemctl enable go2rtc` succeeds with only a warning and creates no
+# symlink, so the service starts once and is then absent from every boot.
+WantedBy=multi-user.target
