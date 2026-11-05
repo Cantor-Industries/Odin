@@ -8,6 +8,8 @@ all viewable in a laptop browser at a single URL.
 <img src="https://raw.githubusercontent.com/Cantor-Industries/Odin/master/docs/odin-hud.png" width="600" alt="Odin HUD screenshot"> 
 </div>
 
+[![tests](https://github.com/Cantor-Industries/Odin/actions/workflows/tests.yml/badge.svg)](https://github.com/Cantor-Industries/Odin/actions/workflows/tests.yml)
+
 ## Install
 
 On a Raspberry Pi 5 with 64-bit Raspberry Pi OS and a CSI camera:
