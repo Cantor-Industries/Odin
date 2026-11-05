@@ -4,6 +4,10 @@ Companion computer for a Raspberry Pi 5 drone: low-latency WebRTC video from a
 CSI camera, plus a Python MAVLink telemetry service and a fighter-jet style HUD,
 all viewable in a laptop browser at a single URL.
 
+<div>
+<img src="https://raw.githubusercontent.com/cantorindustries/odin/main/docs/odin-hud.png" width="600" alt="Odin HUD screenshot"> 
+</div>
+
 ## Install
 
 On a Raspberry Pi 5 with 64-bit Raspberry Pi OS and a CSI camera:
