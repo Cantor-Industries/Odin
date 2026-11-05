@@ -501,3 +501,11 @@ is relative (from `GLOBAL_POSITION_INFO.relative_alt`). Check
   downside is the HUD is not in recordings or in other players (VLC).
 * Video is encoded in **software** (the Pi 5 has no H.264 hardware encoder).
   720p30 costs roughly 20 % of the 4 cores; that leaves headroom for vision work.
+
+## License
+
+Odin is Copyright 2026 Cantor Industries, licensed under the Apache License,
+Version 2.0 — see [LICENSE](../LICENSE), [NOTICE](../NOTICE) and
+[THIRD_PARTY.md](../THIRD_PARTY.md). The `go2rtc` and `ffmpeg` binaries are
+downloaded at install time and never committed, so this repository ships none
+of their code.

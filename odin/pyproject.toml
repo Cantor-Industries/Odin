@@ -3,6 +3,7 @@ name = "odin"
 version = "0.1.0"
 description = "Raspberry Pi 5 drone companion: WebRTC video + MAVLink telemetry HUD"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "pymavlink==2.4.50",

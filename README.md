@@ -25,6 +25,9 @@ automatically.
 ```
 Odin/                       repo root
 ├── README.md               this file
+├── LICENSE                 Apache License 2.0
+├── NOTICE                  attribution notice
+├── THIRD_PARTY.md          dependency licenses and sources
 ├── agents.md               the original build spec / handoff document
 ├── .gitignore
 └── odin/                   the application
@@ -89,3 +92,14 @@ cd ~/Odin/odin
   notes, troubleshooting.
 * `agents.md` — the original specification, kept for reference. Note that it
   describes `~/drone-vision`; the code now lives in `Odin/odin`.
+
+## License
+
+Copyright 2026 Cantor Industries.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) and
+[NOTICE](NOTICE); third-party dependencies are listed in
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+The `go2rtc` and `ffmpeg` binaries are downloaded and checksum-verified at
+install time rather than committed, so no third-party binary is stored in
+this repository (see `odin/scripts/fetch-binaries.sh`).
