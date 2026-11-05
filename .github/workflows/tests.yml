@@ -13,6 +13,11 @@ jobs:
     # Neither needs a camera, go2rtc, or arm64, so the suite stays fast and CI
     # never flirts with the Pi-specific bits.
     runs-on: ubuntu-latest
+    # The Python project (pyproject.toml, uv.lock) lives in odin/, not at the
+    # repo root; every `run:` below is executed from there.
+    defaults:
+      run:
+        working-directory: odin
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +46,9 @@ jobs:
   # failure, and vice versa.
   lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: odin
     steps:
       - uses: actions/checkout@v4
 
