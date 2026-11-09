@@ -5,7 +5,7 @@ CSI camera, plus a Python MAVLink telemetry service and a fighter-jet style HUD,
 all viewable in a laptop browser at a single URL.
 
 <div>
-<img src="https://raw.githubusercontent.com/Cantor-Industries/Odin/master/docs/odin-hud.png" width="600" alt="Odin HUD screenshot"> 
+<img src="https://raw.githubusercontent.com/Cantor-Industries/Odin/master/docs/odin_hud.gif" width="600" alt="Odin HUD screenshot"> 
 </div>
 
 [![tests](https://github.com/Cantor-Industries/Odin/actions/workflows/tests.yml/badge.svg)](https://github.com/Cantor-Industries/Odin/actions/workflows/tests.yml)
